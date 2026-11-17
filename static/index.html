@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智批语文 · AI 批改工作台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header id="topnav">
+  <div class="logo">
+    <div class="logo-badge">文</div>
+    <div>
+      <div class="logo-name">智批语文</div>
+      <div class="logo-sub">AI 批改 · 手写批注 · 错题分析 · AI 出题</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <button type="button" class="btn ghost" id="btn-archive">🎓 学生档案</button>
+    <button type="button" class="btn ghost" id="btn-history">🗂 批改记录</button>
+    <button type="button" class="btn ghost" id="btn-settings">⚙ AI 接口</button>
+    <span id="ai-status" class="ai-dot" title="AI 接口状态"></span>
+  </div>
+</header>
+
+<main id="layout">
+  <!-- 左栏：功能区 -->
+  <aside id="col-left">
+    <div class="card">
+      <div class="card-head"><h2>📷 试卷照片</h2><span class="muted small" id="img-count"></span></div>
+      <div id="dropzone" tabindex="0" role="button" aria-label="上传试卷照片">
+        <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp" multiple hidden>
+        <div id="dz-empty">
+          <div class="dz-icon">🖼️</div>
+          <div class="dz-title">拖拽照片到这里<br>或 <span class="dz-link">点击上传</span></div>
+          <div class="dz-sub">可多张（同一份卷子连续页）<br>PNG / JPG / WEBP · 单张≤15MB · Ctrl+V 粘贴</div>
+        </div>
+      </div>
+      <div id="thumb-list"></div>
+      <div id="dropzone-mini" tabindex="0" role="button" aria-label="继续添加图片" hidden>＋ 拖拽或点击继续添加（最多6张）</div>
+      <div class="field" style="margin-top:12px">
+        <label for="upload-student">学生姓名（留空由 AI 识别卷面）</label>
+        <input type="text" id="upload-student" maxlength="20" placeholder="如：王小明">
+      </div>
+      <div class="field">
+        <label>标准答案（可选：全班同一份卷，对照答案批改更准更省）</label>
+        <div class="flex" style="gap:6px">
+          <select id="answer-select" class="grow" style="flex:1;min-width:0"></select>
+          <button type="button" class="btn soft sm" id="btn-answer-manage" title="上传/管理标准答案">＋ 答案</button>
+        </div>
+        <div class="muted small" id="answer-hint">不选则 AI 自行判断答案</div>
+      </div>
+      <div class="field">
+        <label>批改精细度 <span class="muted" title="控制 AI 分析的详细程度；模型是否深度推理由「AI 接口」里的推理开关决定">（分析详略，速度由接口推理开关决定）</span></label>
+        <div class="mode-switch" role="radiogroup" aria-label="批改精细度">
+          <button type="button" class="mode-btn active" id="mode-fast" role="radio" aria-checked="true">⚡ 精简<span>错因一句话</span></button>
+          <button type="button" class="mode-btn" id="mode-think" role="radio" aria-checked="false">🧠 详尽<span>逐字推敲详解</span></button>
+        </div>
+      </div>
+      <div class="field">
+        <label>自定义批改要求（点选预设或自己写，自动记忆）</label>
+        <div id="custom-chips">
+          <button type="button" class="cchip" data-c="按低年级标准从宽判分，笔顺不规范不扣分">低年级从宽</button>
+          <button type="button" class="cchip" data-c="严格按课程标准判分，错别字、标点错误都要指出">严格判分</button>
+          <button type="button" class="cchip" data-c="重点关注错别字和书写规范，逐字指出">盯错别字</button>
+          <button type="button" class="cchip" data-c="作文只挑3个最主要的问题，多鼓励少批评">作文抓重点</button>
+          <button type="button" class="cchip" data-c="阅读理解按要点给分，答出主要意思即可">阅读按要点</button>
+        </div>
+        <textarea id="custom-prompt" rows="2" maxlength="500" placeholder="点击上方预设快速填入，也可直接输入自己的要求"></textarea>
+      </div>
+      <button type="button" class="btn primary xl" id="btn-grade">✨ AI 自动批改</button>
+      <button type="button" class="btn soft xl" id="btn-demo">▶ 先看演示效果</button>
+      <div id="upload-hint" class="muted small"></div>
+    </div>
+  </aside>
+
+  <!-- 中栏：批改白板（常驻） -->
+  <section id="col-mid">
+    <div id="progress-card" hidden>
+      <div class="spinner"></div>
+      <div>
+        <div class="pg-title" id="pg-title">AI 正在批改试卷…</div>
+        <div class="muted small" id="pg-sub">识别题目 → 判断对错 → 分析错因</div>
+      </div>
+    </div>
+    <div class="card" id="board-card">
+      <div class="card-head">
+        <h2>🖊 批改白板</h2>
+        <div class="flex">
+          <span id="save-state" class="small"></span>
+          <button type="button" class="btn soft sm" id="btn-next-paper" hidden>＋ 批改下一份</button>
+        </div>
+      </div>
+      <!-- 批改工具条 -->
+      <div id="board-toolbar">
+        <div class="tool-group" role="toolbar" aria-label="批改工具">
+          <button type="button" class="tool-btn active" data-tool="select" title="选择/移动标注（V）"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6 3l12 9-5.2 1.4L15 19l-2.6 1.2-2.2-5.6L6 18z" fill="currentColor"/></svg></button>
+          <button type="button" class="tool-btn" data-tool="tick" title="打对勾：在卷面点击落笔（T）">✓</button>
+          <button type="button" class="tool-btn" data-tool="cross" title="打叉：点击落笔（X）">✗</button>
+          <button type="button" class="tool-btn" data-tool="circle" title="画圈：按住拖出椭圆（C）">◯</button>
+          <button type="button" class="tool-btn" data-tool="pen" title="自由书写（P）"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 20l1.2-4.2L15.6 5.4a2 2 0 012.8 0l.2.2a2 2 0 010 2.8L8.2 18.8 4 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="tool-btn" data-tool="text" title="文字批注：点击卷面输入文字（W）"><b style="font-size:15px">T</b></button>
+          <button type="button" class="tool-btn" data-tool="erase" title="橡皮擦：点击删除一笔批注（E）"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M9.5 19h9M3.8 14.2l7.6-7.6a2 2 0 012.8 0l3.2 3.2a2 2 0 010 2.8L12 18H8.6l-4.8-3.8a1 1 0 010 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10l6 6" stroke="currentColor" stroke-width="1.6"/></svg></button>
+        </div>
+        <div class="tool-group" id="color-group" role="radiogroup" aria-label="笔迹颜色">
+          <button type="button" class="color-dot active" data-color="#d0342c" style="--c:#d0342c" title="红色"></button>
+          <button type="button" class="color-dot" data-color="#1e6fd9" style="--c:#1e6fd9" title="蓝色"></button>
+          <button type="button" class="color-dot" data-color="#1e8449" style="--c:#1e8449" title="绿色"></button>
+          <button type="button" class="color-dot" data-color="#b9770e" style="--c:#b9770e" title="橙色"></button>
+          <button type="button" class="color-dot" data-color="#7d3c98" style="--c:#7d3c98" title="紫色"></button>
+          <button type="button" class="color-dot" data-color="#2b2620" style="--c:#2b2620" title="黑色"></button>
+        </div>
+        <div class="tool-group">
+          <label class="tool-toggle" title="显示答对题的绿框（默认隐藏，只留错题痕迹）">
+            <input type="checkbox" id="show-correct"> 显示正确标注
+          </label>
+          <button type="button" class="btn ghost sm" id="btn-undo-mark" title="撤销上一笔（Ctrl+Z）">↩ 撤销</button>
+          <button type="button" class="btn ghost sm" id="btn-clear-marks" title="清空本页手写批注">清空笔迹</button>
+          <button type="button" class="btn ghost sm" id="btn-zoom" title="切换图片大小">🔍 放大</button>
+        </div>
+      </div>
+      <div id="page-tabs"></div>
+      <div id="board-viewport">
+        <div id="board-empty" class="empty">
+          <div style="font-size:40px;margin-bottom:8px">🖊</div>
+          上传试卷照片到这里或左侧，立即显示卷面。<br>
+          <span class="small">AI 批改前也可以先手动批改：打勾、打叉、画圈、书写、文字批注，六色可选。</span>
+        </div>
+        <div id="annotated-wrap" hidden>
+          <img id="annotated-img" alt="试卷卷面">
+          <svg id="marks-svg"></svg>
+          <div id="annotation-layer"></div>
+          <input type="text" id="text-input-overlay" hidden maxlength="60" placeholder="输入批注文字，回车确认">
+        </div>
+      </div>
+      <div id="no-image-note" class="muted small" hidden style="padding:8px 0">该记录没有原卷图片（演示/旧数据），点击下方题号条查看与编辑各题。</div>
+      <div id="question-chips"></div>
+    </div>
+    <div class="card" id="editor-card" hidden>
+      <div class="card-head">
+        <h2 id="editor-title">✏️ 编辑题目</h2>
+        <div class="flex">
+          <span class="muted small">修改即时自动保存</span>
+          <button type="button" class="btn ghost sm" id="qe-close">收起 ✕</button>
+        </div>
+      </div>
+      <div id="question-editor"></div>
+    </div>
+  </section>
+
+  <!-- 右栏：成绩 + 结果区 -->
+  <aside id="col-right">
+    <div id="result-banner" hidden></div>
+    <div id="score-strip" hidden></div>
+    <div id="right-empty" class="card">
+      <div class="empty">
+        <div style="font-size:36px;margin-bottom:8px">🔍</div>
+        <b>结果区</b><br>
+        <span class="small">成绩 · 错题分析 · 家长小结<br>AI 出题 · 双版本 PDF</span>
+      </div>
+    </div>
+    <div id="right-result" hidden>
+      <div class="card">
+        <div class="card-head"><h2>🔍 错题分析报告</h2></div>
+        <div id="wrong-report"></div>
+      </div>
+      <div class="card" id="parent-card" hidden>
+        <div class="card-head"><h2>👨‍👩‍👧 给家长的小结</h2>
+          <button type="button" class="btn sm ghost" id="btn-copy-parent">📋 复制</button></div>
+        <div id="parent-report"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>📊 知识点掌握</h2></div>
+        <div id="kp-report"></div>
+      </div>
+      <div class="card accent">
+        <div class="card-head"><h2>🎯 AI 针对性出题</h2></div>
+        <p class="muted small" id="train-desc">AI 根据本卷错题现场编新题，专攻学生的具体错误。</p>
+        <div class="flex">
+          <div class="field inline"><label for="train-per">每类题数</label>
+            <input type="number" id="train-per" min="1" max="10" value="4"></div>
+          <button type="button" class="btn primary" id="btn-train">🤖 AI 出题</button>
+          <button type="button" class="btn soft" id="btn-tiered" title="按学情档案分层：基础薄弱先练字词默写句子，再巩固变式，达标则拓展">📶 分层出题</button>
+        </div>
+        <div id="tier-plan-box" hidden></div>
+        <div id="train-progress" hidden class="flex" style="margin-top:10px">
+          <div class="spinner sm"></div><span class="muted small">AI 正在编题，约 15~60 秒…</span>
+        </div>
+        <div id="train-result" hidden>
+          <div id="train-source" class="small" style="margin:8px 0"></div>
+          <div id="train-list"></div>
+          <div class="pdf-btns">
+            <button type="button" class="btn primary" id="btn-pdf-plain">⬇ 无答案版 PDF</button>
+            <button type="button" class="btn soft" id="btn-pdf-answers">⬇ 答案版 PDF</button>
+          </div>
+          <div class="muted small" style="margin-top:6px;text-align:center">无答案版给学生练习 · 答案版教师用</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div id="toast" hidden></div>
+<div id="modal-root" hidden>
+  <div id="modal-mask"></div>
+  <div id="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-head"><div id="modal-title"></div><button type="button" id="modal-close" aria-label="关闭">✕</button></div>
+    <div id="modal-body"></div>
+    <div id="modal-actions"></div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
